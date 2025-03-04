@@ -57,7 +57,11 @@ class MedNeXtBlock(nn.Module):
 
         # Second convolution (Expansion) layer with Conv3D 1x1x1
         self.conv2 = nn.Conv2d(
-            in_channels=in_channels, out_channels=expansion_ratio * in_channels, kernel_size=1, stride=1, padding=0
+            in_channels=in_channels,
+            out_channels=expansion_ratio * in_channels,
+            kernel_size=1,
+            stride=1,
+            padding=0,
         )
 
         # GeLU activations
@@ -65,8 +69,19 @@ class MedNeXtBlock(nn.Module):
 
         # Third convolution (Compression) layer with Conv3D 1x1x1
         self.conv3 = nn.Conv2d(
-            in_channels=expansion_ratio * in_channels, out_channels=out_channels, kernel_size=1, stride=1, padding=0
+            in_channels=expansion_ratio * in_channels,
+            out_channels=out_channels,
+            kernel_size=1,
+            stride=1,
+            padding=0,
         )
+
+    def _common_forward(self, x):
+        x1 = x
+        x1 = self.conv1(x1)
+        x1 = self.act(self.conv2(self.norm(x1)))
+        x1 = self.conv3(x1)
+        return x1
 
     def forward(self, x):
         """
@@ -78,11 +93,9 @@ class MedNeXtBlock(nn.Module):
         Returns:
             torch.Tensor: Output tensor.
         """
-        x1 = x
-        x1 = self.conv1(x1)
-        x1 = self.act(self.conv2(self.norm(x1)))
 
-        x1 = self.conv3(x1)
+        x1 = self._common_forward(x)
+
         x1 = x + x1
 
         return x1
@@ -141,12 +154,7 @@ class MedNeXtDownBlock(MedNeXtBlock):
         Returns:
             torch.Tensor: Output tensor.
         """
-        x1 = x
-        x1 = self.conv1(x1)
-        x1 = self.act(self.conv2(self.norm(x1)))
-
-        x1 = self.conv3(x1)
-        x1 = x + x1
+        x1 = self._common_forward(x)
 
         res = self.res_conv(x)
         x1 = x1 + res
@@ -209,12 +217,7 @@ class MedNeXtUpBlock(MedNeXtBlock):
         Returns:
             torch.Tensor: Output tensor.
         """
-        x1 = x
-        x1 = self.conv1(x1)
-        x1 = self.act(self.conv2(self.norm(x1)))
-
-        x1 = self.conv3(x1)
-        x1 = x + x1
+        x1 = self._common_forward(x)
 
         x1 = torch.nn.functional.pad(x1, (1, 0, 1, 0))
 
