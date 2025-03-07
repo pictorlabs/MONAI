@@ -20,8 +20,12 @@ from dataclasses import dataclass
 
 import torch
 import torch.nn as nn
-
-from monai.networks.blocks.mednext_block import MedNeXtBlock, MedNeXtDownBlock, MedNeXtOutBlock, MedNeXtUpBlock
+from monai.networks.blocks.mednext_block import (
+    MedNeXtBlock,
+    MedNeXtDownBlock,
+    MedNeXtOutBlock,
+    MedNeXtUpBlock,
+)
 
 
 @dataclass
@@ -80,7 +84,9 @@ class MedNeXt(nn.Module):
 
         encoder_kernel_size = decoder_kernel_size = self.config.kernel_size
 
-        self.stem = nn.Conv2d(self.config.in_channels, self.config.init_filters, kernel_size=1)
+        self.stem = nn.Conv2d(
+            self.config.in_channels, self.config.init_filters, kernel_size=1
+        )
 
         enc_stages = []
         down_blocks = []
@@ -115,8 +121,10 @@ class MedNeXt(nn.Module):
         self.bottleneck = nn.Sequential(
             *[
                 MedNeXtBlock(
-                    in_channels=self.config.init_filters * (2 ** len(self.config.blocks_down)),
-                    out_channels=self.config.init_filters * (2 ** len(self.config.blocks_down)),
+                    in_channels=self.config.init_filters
+                    * (2 ** len(self.config.blocks_down)),
+                    out_channels=self.config.init_filters
+                    * (2 ** len(self.config.blocks_down)),
                     expansion_ratio=self.config.bottleneck_expansion_ratio,
                     kernel_size=decoder_kernel_size,
                 )
@@ -129,8 +137,10 @@ class MedNeXt(nn.Module):
         for i, num_blocks in enumerate(self.config.blocks_up):
             up_blocks.append(
                 MedNeXtUpBlock(
-                    in_channels=self.config.init_filters * (2 ** (len(self.config.blocks_up) - i)),
-                    out_channels=self.config.init_filters * (2 ** (len(self.config.blocks_up) - i - 1)),
+                    in_channels=self.config.init_filters
+                    * (2 ** (len(self.config.blocks_up) - i)),
+                    out_channels=self.config.init_filters
+                    * (2 ** (len(self.config.blocks_up) - i - 1)),
                     expansion_ratio=self.config.decoder_expansion_ratio[i],
                     kernel_size=decoder_kernel_size,
                 )
@@ -140,8 +150,10 @@ class MedNeXt(nn.Module):
                 nn.Sequential(
                     *[
                         MedNeXtBlock(
-                            in_channels=self.config.init_filters * (2 ** (len(self.config.blocks_up) - i - 1)),
-                            out_channels=self.config.init_filters * (2 ** (len(self.config.blocks_up) - i - 1)),
+                            in_channels=self.config.init_filters
+                            * (2 ** (len(self.config.blocks_up) - i - 1)),
+                            out_channels=self.config.init_filters
+                            * (2 ** (len(self.config.blocks_up) - i - 1)),
                             expansion_ratio=self.config.decoder_expansion_ratio[i],
                             kernel_size=decoder_kernel_size,
                         )
@@ -190,8 +202,12 @@ class MedNeXt(nn.Module):
 
         # Decoder forward pass with skip connections
         for i, (up_block, dec_stage) in enumerate(zip(self.up_blocks, self.dec_stages)):
-            x = up_block(x)
-            x = x + enc_outputs[-(i + 1)]
+            # Pass the target size from encoder skip connection to ensure dimension matching
+            skip_connection = enc_outputs[-(i + 1)]
+            x = up_block(x, target_size=skip_connection.shape[2:])
+
+            # Now the dimensions are guaranteed to match
+            x = x + skip_connection
             x = dec_stage(x)
 
         # Final output block

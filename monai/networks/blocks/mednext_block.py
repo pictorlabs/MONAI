@@ -53,9 +53,9 @@ class MedNeXtBlock(nn.Module):
         )
 
         # Normalization Layer.
-        self.norm = nn.GroupNorm(num_groups=in_channels, num_channels=in_channels)  # type: ignore
+        self.norm = nn.GroupNorm(num_groups=in_channels, num_channels=in_channels)
 
-        # Second convolution (Expansion) layer with Conv3D 1x1x1
+        # Second convolution (Expansion) layer with Conv2D 1x1
         self.conv2 = nn.Conv2d(
             in_channels=in_channels,
             out_channels=expansion_ratio * in_channels,
@@ -67,7 +67,7 @@ class MedNeXtBlock(nn.Module):
         # GeLU activations
         self.act = nn.GELU()
 
-        # Third convolution (Compression) layer with Conv3D 1x1x1
+        # Third convolution (Compression) layer with Conv2D 1x1
         self.conv3 = nn.Conv2d(
             in_channels=expansion_ratio * in_channels,
             out_channels=out_channels,
@@ -164,17 +164,14 @@ class MedNeXtDownBlock(MedNeXtBlock):
 
 class MedNeXtUpBlock(MedNeXtBlock):
     """
-    MedNeXtUpBlock class for upsampling in the MedNeXt model.
+    Optimized MedNeXtUpBlock class that uses Upsample + Conv instead of ConvTranspose2d for
+    better computational efficiency.
 
     Args:
         in_channels (int): Number of input channels.
         out_channels (int): Number of output channels.
         expansion_ratio (int): Expansion ratio for the block. Defaults to 4.
         kernel_size (int): Kernel size for convolutions. Defaults to 7.
-        use_residual_connection (bool): Whether to use residual connection. Defaults to False.
-        norm_type (str): Type of normalization to use. Defaults to "group".
-        dim (str): Dimension of the input. Can be "2d" or "3d". Defaults to "3d".
-        global_resp_norm (bool): Whether to use global response normalization. Defaults to False.
     """
 
     def __init__(
@@ -191,39 +188,55 @@ class MedNeXtUpBlock(MedNeXtBlock):
             kernel_size,
         )
 
-        self.res_conv = nn.ConvTranspose2d(
+        # Upsampling operation
+        self.upsample = nn.Upsample(scale_factor=2, mode="nearest")
+
+        # Residual path with 1x1 conv
+        self.res_conv = nn.Conv2d(
             in_channels=in_channels,
             out_channels=out_channels,
             kernel_size=1,
-            stride=2,
+            stride=1,
+            padding=0,
         )
 
-        self.conv1 = nn.ConvTranspose2d(  # type: ignore
-            in_channels=in_channels,
-            out_channels=in_channels,
-            kernel_size=kernel_size,
-            stride=2,
-            padding=kernel_size // 2,
-            groups=in_channels,
-        )
-
-    def forward(self, x):
+    def forward(self, x, target_size=None):
         """
-        Forward pass of the MedNeXtUpBlock.
+        Forward pass of the MedNeXtUpBlock with dimension matching.
 
         Args:
             x (torch.Tensor): Input tensor.
+            target_size (tuple, optional): Target spatial size for output tensor.
 
         Returns:
             torch.Tensor: Output tensor.
         """
+        # Apply block operations
         x1 = self._common_forward(x)
 
-        x1 = torch.nn.functional.pad(x1, (1, 0, 1, 0))
+        # Apply upsampling to main path
+        x1 = self.upsample(x1)
 
-        res = self.res_conv(x)
+        # Apply upsampling to residual path
+        res = self.upsample(x)
+        res = self.res_conv(res)
+
+        # Apply padding to match original implementation behavior
+        x1 = torch.nn.functional.pad(x1, (1, 0, 1, 0))
         res = torch.nn.functional.pad(res, (1, 0, 1, 0))
 
+        # Ensure dimensions match target size if provided
+        if target_size is not None:
+            if x1.shape[2:] != target_size:
+                x1 = torch.nn.functional.interpolate(
+                    x1, size=target_size, mode="nearest"
+                )
+            if res.shape[2:] != target_size:
+                res = torch.nn.functional.interpolate(
+                    res, size=target_size, mode="nearest"
+                )
+
+        # Residual connection
         x1 = x1 + res
 
         return x1
@@ -231,18 +244,24 @@ class MedNeXtUpBlock(MedNeXtBlock):
 
 class MedNeXtOutBlock(nn.Module):
     """
-    MedNeXtOutBlock class for the output block in the MedNeXt model.
+    Optimized MedNeXtOutBlock class using standard Conv2d.
 
     Args:
         in_channels (int): Number of input channels.
         n_classes (int): Number of output classes.
-        dim (str): Dimension of the input. Can be "2d" or "3d".
     """
 
     def __init__(self, in_channels, n_classes):
         super().__init__()
 
-        self.conv_out = nn.ConvTranspose2d(in_channels, n_classes, kernel_size=1)
+        # Use standard Conv2d instead of ConvTranspose2d
+        self.conv_out = nn.Conv2d(
+            in_channels=in_channels,
+            out_channels=n_classes,
+            kernel_size=1,
+            stride=1,
+            padding=0,
+        )
 
     def forward(self, x):
         """
