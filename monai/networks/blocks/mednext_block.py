@@ -77,9 +77,10 @@ class MedNeXtBlock(nn.Module):
         )
 
     def _common_forward(self, x):
-        x1 = x
-        x1 = self.conv1(x1)
-        x1 = self.act(self.conv2(self.norm(x1)))
+        x1 = self.conv1(x)
+        x1 = self.norm(x1)
+        x1 = self.conv2(x1)
+        x1 = self.act(x1)
         x1 = self.conv3(x1)
         return x1
 
@@ -96,7 +97,7 @@ class MedNeXtBlock(nn.Module):
 
         x1 = self._common_forward(x)
 
-        x1 = x + x1
+        x1.add_(x)
 
         return x1
 
@@ -189,8 +190,7 @@ class MedNeXtUpBlock(MedNeXtBlock):
             out_channels,
             expansion_ratio,
             kernel_size,
-        )
-
+        )        
         self.res_conv = nn.ConvTranspose2d(
             in_channels=in_channels,
             out_channels=out_channels,
@@ -224,7 +224,7 @@ class MedNeXtUpBlock(MedNeXtBlock):
         res = self.res_conv(x)
         res = torch.nn.functional.pad(res, (1, 0, 1, 0))
 
-        x1 = x1 + res
+        x1.add_(res)
 
         return x1
 
